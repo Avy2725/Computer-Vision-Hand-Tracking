@@ -1,6 +1,9 @@
 let handPose;
 let video;
 let hands = [];
+let connections = [];
+let gestureSocket = null;
+let camVisible = true;
 
 // const width = screen.availWidth / 1.5;
 // const height = screen.availHeight / 1.5;
@@ -8,17 +11,19 @@ let hands = [];
 const width = screen.availWidth;
 const height = screen.availHeight;
 
-const confidenceDis = document.querySelector(".confidence");
-const handedDis = document.querySelector(".handed");
-const pointerTipDis = document.querySelector(".pointerTip");
-const thumnTipDis = document.querySelector(".thumnTip");
-const functionDis = document.querySelector(".function");
+const confidenceDis = document.querySelector('.confidence');
+const handedDis = document.querySelector('.handed');
+const pointerTipDis = document.querySelector('.pointerTip');
+const thumbTipDis = document.querySelector('.thumbTip');
+const functionDis = document.querySelector('.function');
+const streamDis = document.querySelector('.stream');
+const camToggleBtn = document.querySelector('.cam-toggle');
 
 const options = {
   maxHands: 2,
   flipped: true,
-  runtime: "tfjs",
-  modelType: "full",
+  runtime: 'tfjs',
+  modelType: 'full',
   detectorModelUrl: undefined,
   landmarkModelUrl: undefined,
 };
@@ -30,12 +35,13 @@ function preload() {
 
 function setup() {
   console.clear();
-  createCanvas(width, height);
-  // Position the canvas in the center of the screen
   let canvas = createCanvas(width, height);
-  // canvas.position((windowWidth - width) / 2, (windowHeight - height) / 2);
-
   canvas.position(windowWidth - width, windowHeight - height);
+  canvas.style('position', 'fixed');
+  canvas.style('top', '0');
+  canvas.style('left', '0');
+  canvas.style('z-index', '0');
+  canvas.style('pointer-events', 'none');
 
   // Create the webcam video and hide it
   video = createCapture(VIDEO);
@@ -46,12 +52,48 @@ function setup() {
   // start detecting hands from the webcam video
   handPose.detectStart(video, gotHands);
   connections = handPose.getConnections();
+
+  const socketUrl = new URLSearchParams(window.location.search).get('ws');
+  if (socketUrl) {
+    try {
+      gestureSocket = new WebSocket(socketUrl);
+      gestureSocket.addEventListener('open', () => {
+        if (streamDis) {
+          streamDis.textContent = 'Stream: connected';
+        }
+      });
+      gestureSocket.addEventListener('close', () => {
+        if (streamDis) {
+          streamDis.textContent = 'Stream: disconnected';
+        }
+      });
+      gestureSocket.addEventListener('error', () => {
+        if (streamDis) {
+          streamDis.textContent = 'Stream: error';
+        }
+      });
+    } catch (error) {
+      console.warn('WebSocket setup failed:', error);
+    }
+  } else if (streamDis) {
+    streamDis.textContent = 'Stream: disabled';
+  }
+
+  if (camToggleBtn) {
+    camToggleBtn.addEventListener('click', toggleCameraPreview);
+    camToggleBtn.textContent = 'Cam: On';
+  }
 }
 
 function draw() {
   // Draw the webcam video
-  //image(video, 0, 0, width, height);
   clear(); // Clear the canvas for each frame
+
+  if (camVisible) {
+    image(video, 0, 0, width, height);
+  } else {
+    background(5, 7, 13);
+  }
 
   // Draw all the tracked hand points
   for (let i = 0; i < hands.length; i++) {
@@ -80,6 +122,14 @@ function draw() {
   }
 }
 
+function toggleCameraPreview() {
+  camVisible = !camVisible;
+
+  if (camToggleBtn) {
+    camToggleBtn.textContent = camVisible ? 'Cam: On' : 'Cam: Off';
+  }
+}
+
 function gotHands(results, error) {
   // need to know how to get each output check dc
   if (error) {
@@ -91,45 +141,65 @@ function gotHands(results, error) {
 
   if (hands.length === 0) {
     // console.log("No hands detected");
-    functionDis.textContent = "No hands detected";
+    functionDis.textContent = 'No hands detected';
+    if (gestureSocket && gestureSocket.readyState === WebSocket.OPEN) {
+      gestureSocket.send(JSON.stringify({ type: 'hands', hands: [] }));
+    }
     return;
   } else {
-    out = hands[0].confidence * 100;
+    let out = hands[0].confidence * 100;
     out = out.toFixed(2);
     // console.log("Confidence: " + out + "%");
 
-    confidenceDis.textContent = "Confidence: " + out + "%";
+    confidenceDis.textContent = 'Confidence: ' + out + '%';
 
     let indexFingerTip = hands[0].keypoints.find(
-      (point) => point.name === "index_finger_tip"
+      (point) => point.name === 'index_finger_tip',
     );
     let thumbTip = hands[0].keypoints.find(
-      (point) => point.name === "thumb_tip"
+      (point) => point.name === 'thumb_tip',
     );
 
-    handedDis.textContent = "Handedness: " + hands[0].handedness; // HANDEDNESS
+    handedDis.textContent = 'Handedness: ' + hands[0].handedness; // HANDEDNESS
 
     if (indexFingerTip && thumbTip) {
-      // let out1 = indexFingerTip.x.toFixed(2);
-      let out2 = indexFingerTip.y.toFixed(2);
-      // let out3 = thumbTip.x.toFixed(2);
-      let out4 = thumbTip.y.toFixed(2);
+      let indexTipX = indexFingerTip.x.toFixed(2);
+      let indexTipY = indexFingerTip.y.toFixed(2);
+      let thumbTipX = thumbTip.x.toFixed(2);
+      let thumbTipY = thumbTip.y.toFixed(2);
 
-      // console.log(`Index Finger Tip - X: ${out1}, Y: ${out2}`);
-      // console.log(`Thumb Tip - X: ${out3}, Y: ${out4}`);
+      thumbTipDis.textContent = `Thumb Tip - X: ${thumbTipX}, Y: ${thumbTipY}`;
+      pointerTipDis.textContent = `Index Tip - X: ${indexTipX}, Y: ${indexTipY}`;
 
-      // console.log(`Index Finger Tip - Y: ${out2}`);
-      // console.log(`Thumb Tip - Y: ${out4}`);
+      const dx = thumbTip.x - indexFingerTip.x;
+      const dy = thumbTip.y - indexFingerTip.y;
+      const pinchDistance = Math.hypot(dx, dy);
 
-      thumnTipDis.textContent = `Thumb Tip - Y: ${out4}`;
-      pointerTipDis.textContent = `Index Finger Tip - Y: ${out2}`;
+      let gesture = 'Unclassified';
+      if (pinchDistance < 28 && out > 98) {
+        gesture = 'Pinch';
+      } else if (pinchDistance >= 28 && pinchDistance < 70 && out > 98) {
+        gesture = 'Near';
+      } else if (pinchDistance >= 70 && out > 98) {
+        gesture = 'Apart';
+      }
 
-      if (Math.abs(out4 - out2) < 25 && out > 98) {
-        // console.log("Together");
-        functionDis.textContent = "Function: Together";
-      } else if (Math.abs(out4 - out2) > 25 && out > 98) {
-        // console.log("Apart");
-        functionDis.textContent = "Function: Apart";
+      functionDis.textContent = `Gesture: ${gesture}`;
+
+      if (gestureSocket && gestureSocket.readyState === WebSocket.OPEN) {
+        gestureSocket.send(
+          JSON.stringify({
+            type: 'hand-data',
+            confidence: Number(out),
+            handedness: hands[0].handedness,
+            gesture,
+            keypoints: hands[0].keypoints.map((point) => ({
+              name: point.name,
+              x: Number(point.x.toFixed(2)),
+              y: Number(point.y.toFixed(2)),
+            })),
+          }),
+        );
       }
     } else {
       // console.log("Index Finger Tip or Thumb Tip not detected");
