@@ -5,8 +5,8 @@ let connections = [];
 let gestureSocket = null;
 let camVisible = true;
 
-// const width = screen.availWidth / 1.5;
-// const height = screen.availHeight / 1.5;
+// Use the full screen size so the tracking overlay fills the viewport.
+// Uncomment the smaller values above if you want a reduced canvas.
 
 const width = screen.availWidth;
 const height = screen.availHeight;
@@ -29,12 +29,13 @@ const options = {
 };
 
 function preload() {
-  // Load the handPose model
+  // Load the hand landmark model before setup runs.
   handPose = ml5.handPose(options);
 }
 
 function setup() {
   console.clear();
+  // Create the drawing surface that will sit on top of the page.
   let canvas = createCanvas(width, height);
   canvas.position(windowWidth - width, windowHeight - height);
   canvas.style('position', 'fixed');
@@ -43,16 +44,17 @@ function setup() {
   canvas.style('z-index', '0');
   canvas.style('pointer-events', 'none');
 
-  // Create the webcam video and hide it
+  // Start the webcam feed and keep the raw video element hidden.
   video = createCapture(VIDEO);
   video.size(width, height);
 
   video.hide();
 
-  // start detecting hands from the webcam video
+  // Begin hand detection and keep the connection list for skeleton drawing.
   handPose.detectStart(video, gotHands);
   connections = handPose.getConnections();
 
+  // Optional WebSocket stream: pass ?ws=ws://localhost:xxxx to enable it.
   const socketUrl = new URLSearchParams(window.location.search).get('ws');
   if (socketUrl) {
     try {
@@ -86,7 +88,7 @@ function setup() {
 }
 
 function draw() {
-  // Draw the webcam video
+  // Clear the previous frame, then redraw the camera preview if enabled.
   clear(); // Clear the canvas for each frame
 
   if (camVisible) {
@@ -95,7 +97,7 @@ function draw() {
     background(5, 7, 13);
   }
 
-  // Draw all the tracked hand points
+  // Draw each detected keypoint as a green dot.
   for (let i = 0; i < hands.length; i++) {
     let hand = hands[i];
     for (let j = 0; j < hand.keypoints.length; j++) {
@@ -107,6 +109,7 @@ function draw() {
     }
   }
 
+  // Draw the hand skeleton using the model's connection pairs.
   for (let i = 0; i < hands.length; i++) {
     let hand = hands[i];
     for (let j = 0; j < connections.length; j++) {
@@ -123,6 +126,7 @@ function draw() {
 }
 
 function toggleCameraPreview() {
+  // Flip the preview state and update the button label.
   camVisible = !camVisible;
 
   if (camToggleBtn) {
@@ -131,7 +135,7 @@ function toggleCameraPreview() {
 }
 
 function gotHands(results, error) {
-  // need to know how to get each output check dc
+  // Keep the latest hand results from the model callback.
   if (error) {
     console.error(error);
     return;
@@ -163,11 +167,13 @@ function gotHands(results, error) {
     handedDis.textContent = 'Handedness: ' + hands[0].handedness; // HANDEDNESS
 
     if (indexFingerTip && thumbTip) {
+      // Show fingertip positions for quick debugging and tuning.
       let indexTipX = indexFingerTip.x.toFixed(2);
       let indexTipY = indexFingerTip.y.toFixed(2);
       let thumbTipX = thumbTip.x.toFixed(2);
       let thumbTipY = thumbTip.y.toFixed(2);
 
+      // Measure how close the thumb and index finger are to classify the gesture.
       thumbTipDis.textContent = `Thumb Tip - X: ${thumbTipX}, Y: ${thumbTipY}`;
       pointerTipDis.textContent = `Index Tip - X: ${indexTipX}, Y: ${indexTipY}`;
 
@@ -175,6 +181,7 @@ function gotHands(results, error) {
       const dy = thumbTip.y - indexFingerTip.y;
       const pinchDistance = Math.hypot(dx, dy);
 
+      // Simple proximity-based gesture labels.
       let gesture = 'Unclassified';
       if (pinchDistance < 28 && out > 98) {
         gesture = 'Pinch';
@@ -186,6 +193,7 @@ function gotHands(results, error) {
 
       functionDis.textContent = `Gesture: ${gesture}`;
 
+      // Send the current hand state to an external app if a WebSocket is connected.
       if (gestureSocket && gestureSocket.readyState === WebSocket.OPEN) {
         gestureSocket.send(
           JSON.stringify({
