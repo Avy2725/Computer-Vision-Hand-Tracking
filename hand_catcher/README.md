@@ -25,7 +25,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Running the game
+## Play in the browser
+
+The webcam game is also deployed on GitHub Pages (allow camera access when prompted):
+
+https://avy2725.github.io/Computer-Vision-Hand-Tracking/catcher.html
+
+## Running the desktop game
 
 ```bash
 python main.py
