@@ -26,7 +26,8 @@ jobs:
       - name: Prepare site
         run: |
           mkdir _site
-          cp index.html hand.js catcher.html catcher.js .nojekyll _site/
+          cp catcher.html catcher.js .nojekyll _site/
+          cp catcher.html _site/index.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
